@@ -15,9 +15,9 @@ android {
     defaultConfig {
         applicationId = "ds.pulsar"
         minSdk = 28
-        targetSdk = 30
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 30 // check EnsurePermissionGranted.kt
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
