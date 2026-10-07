@@ -38,6 +38,9 @@ val btScanErrors = mapOf(
 @SuppressLint("MissingPermission")
 fun searchForBleDevices() : Flow<SearchResult> {
     return callbackFlow {
+        // API 37 annotates this @Nullable: the scanner is null whenever Bluetooth is
+        // currently off. Callers reach here via WhenBtIsReady, so it is normally present;
+        // the safe calls below just keep us from crashing if it is not.
         val btLeScanner = btAdapter.bluetoothLeScanner
         val scanSettings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).setMatchMode(MATCH_MODE_STICKY).build()
         val filters = listOf( ScanFilter.Builder().setServiceUuid(
@@ -56,11 +59,11 @@ fun searchForBleDevices() : Flow<SearchResult> {
                 trySendBlocking(Failure(btScanErrors[errorCode] ?: """¯\(°_o)/¯"""))
             }
         }
-        btLeScanner.startScan(filters,scanSettings,leScanCallback)
+        btLeScanner?.startScan(filters,scanSettings,leScanCallback)
 
         awaitClose {
             if (btAdapter.isEnabled) // might be called when user had turned off BT
-                btLeScanner.stopScan(leScanCallback)
+                btLeScanner?.stopScan(leScanCallback)
         }
     }.buffer(Channel.UNLIMITED)
 }

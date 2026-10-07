@@ -1,7 +1,6 @@
 package com.ds.pulsar
 
 import android.annotation.SuppressLint
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -95,7 +94,6 @@ fun DeviceDiscoverScreen() {
 }
 
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DevList(devList: SnapshotStateList<DeviceListElement>){
     LazyColumn(modifier = Modifier
@@ -104,7 +102,7 @@ fun DevList(devList: SnapshotStateList<DeviceListElement>){
         items( items = devList, key = {it.macAddress} ) { dev ->
             Box(modifier = Modifier
                 .padding(3.dp)
-                .animateItemPlacement())
+                .animateItem())
             {
                 DevListItem(dev)
             }
