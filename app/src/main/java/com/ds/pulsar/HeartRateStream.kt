@@ -1,17 +1,26 @@
+@file:OptIn(ExperimentalBleGattCoroutinesCoroutinesApi::class)
+
 package com.ds.pulsar
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattCharacteristic.*
+import com.beepiz.bluetooth.gattcoroutines.ConnectionClosedException
+import com.beepiz.bluetooth.gattcoroutines.ExperimentalBleGattCoroutinesCoroutinesApi
 import com.beepiz.bluetooth.gattcoroutines.GattConnection
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.shareIn
 import java.lang.System.currentTimeMillis
 import java.util.concurrent.TimeoutException
+import kotlin.time.Duration.Companion.milliseconds
 
 val heartRateStream: HeartRateStream by lazy{
     HeartRateStream()
@@ -43,9 +52,25 @@ class HeartRateStream {
         var batteryLevel: UInt? = null
     )
     // check requiresSearchForDevice before use
+    // Hot stream: a single connection is shared between all collectors; the latest
+    // value is replayed to new collectors, and it automatically reconnects on error.
     @SuppressLint("MissingPermission")
-    @com.beepiz.bluetooth.gattcoroutines.ExperimentalBleGattCoroutinesCoroutinesApi
-    suspend fun heartRateFlow() = flow<DataFromDevice> {
+    val data: SharedFlow<DataFromDevice> = upstreamFlow()
+        .retryWhen { e, _ ->
+            if (e is TimeoutException || e is ConnectionClosedException) {
+                println("device stream failed: $e; retrying to connect")
+                delay(200.milliseconds)
+                true
+            } else false
+        }
+        .shareIn(
+            CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
+            replay = 1
+        )
+
+    @SuppressLint("MissingPermission")
+    private fun upstreamFlow() = flow<DataFromDevice> {
         val deviceConnection = GattConnection(bluetoothDevice = dev!!)
         try {
             var lastTimeDataReceived = currentTimeMillis()
@@ -55,7 +80,7 @@ class HeartRateStream {
                 if (currTime - lastScanTime > 10_000) {
                     lastScanTime = currTime
                     launch {
-                        withTimeoutOrNull(timeoutMillis) {
+                        withTimeoutOrNull(timeoutMillis.milliseconds) {
                             searchForBleDevices().collect()
                         }
                     }
@@ -79,7 +104,7 @@ class HeartRateStream {
                 val time = currentTimeMillis()
                 if (time - lastTimeTriedToFindCharacBattery > 120_000) {
                     lastTimeTriedToFindCharacBattery = time
-                    withTimeoutOrNull(500){
+                    withTimeoutOrNull(500.milliseconds){
                         val serviceBattery =
                             deviceConnection.getService("0000180f-0000-1000-8000-00805f9b34fb".uuid)
                         characBattery =
@@ -108,7 +133,7 @@ class HeartRateStream {
                     data.pulse = hr.toUInt()
                     println("♥ ${data.pulse} ♥")
                     if (characBattery != null) {
-                        withTimeoutOrNull(500){
+                        withTimeoutOrNull(500.milliseconds){
                             val time = currentTimeMillis()
                             if (time - lastTimeHeardFromBattery > 60_000){
                                 lastTimeHeardFromBattery = time

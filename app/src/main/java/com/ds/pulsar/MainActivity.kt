@@ -1,10 +1,7 @@
 package com.ds.pulsar
 
 import android.app.Activity
-import android.graphics.Paint
-import android.graphics.Rect
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,10 +14,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BatteryStd
@@ -45,7 +44,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -55,13 +58,13 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.beepiz.bluetooth.gattcoroutines.ConnectionClosedException
 import com.ds.pulsar.ui.theme.PulsarTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeoutException
-import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 
 private lateinit
@@ -144,17 +147,6 @@ fun MainScreen() {
 private fun MainUI() {
     BoxWithConstraints {
         val topButtonPadding = 6.dp
-        ElevatedButton(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(topButtonPadding),
-            onClick = { navController.navigate(Screens.devList) }
-        ){
-            Icon(
-                Icons.AutoMirrored.Filled.BluetoothSearching,
-                contentDescription = "List of available BLE devices",
-            )
-        }
         var askAgain by remember{
             mutableStateOf(gotToAskAboutDisablingBt)
         }
@@ -243,156 +235,277 @@ private fun MainUI() {
                 contentDescription = "Close the app",
             )
         }
-        //region Digits
         val landscape = maxWidth > maxHeight
-        val dm = LocalContext.current.resources.displayMetrics
-        val pxPerSp = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_SP,
-            100f,
-            dm
-        ) / 100f
-        val heightInPx =
-            TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP,
-                maxHeight.value,
-                dm
-            )
-        var spHeight = heightInPx / pxPerSp
-        var biggerTextSize = 0f
-        var smallerTextSize = 0f
-        val recalcTextSize = {
-            biggerTextSize = spHeight * 0.45f
-            smallerTextSize = biggerTextSize * 0.5f
+        //region timer state
+        val pulse = remember{ mutableStateOf("---") }
+        val time = remember{ mutableStateOf("---") }
+        var battery by remember{ mutableStateOf("") }
+        LaunchedEffect(null ) {
+            pulse.value = "---"
+            heartRateStream.data.collect {
+                pulse.value = it.pulse.toString()
+                if (it.batteryLevel != null)
+                    battery = it.batteryLevel.toString() + "%"
+            }
         }
-        recalcTextSize()
-        val bounds = Rect()
-        val paint = Paint()
-        val text = "0000"
-        paint.textSize = biggerTextSize * pxPerSp
-        paint.getTextBounds(text, 0, text.length, bounds)
-        val textWidth = abs(bounds.right - bounds.left)
-        val surfaceWidthInPx = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP,
-            maxWidth.value,
-            dm
-        )
-        if (surfaceWidthInPx < textWidth) {
-            spHeight *= surfaceWidthInPx / textWidth
-            recalcTextSize()
+        val currentSeconds = {
+            System.currentTimeMillis() / 1000
         }
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(top =
-                    if (landscape)
-                        0.dp
-                    else
-                        topButtonPadding + ButtonDefaults.MinHeight),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
-        ) {
-            val pulse = remember{ mutableStateOf("---") }
-            val time = remember{ mutableStateOf("---") }
-            var battery by remember{ mutableStateOf("") }
-            LaunchedEffect(null ) {
-                while (true) {
-                    try {
-                        coroutineScope {
-                            println("collecting...")
-                            pulse.value = "---"
-                            heartRateStream.heartRateFlow().collect {
-                                pulse.value = it.pulse.toString()
-                                if (it.batteryLevel != null)
-                                    battery = it.batteryLevel.toString() + "%"
-                            }
-                        }
-                    } catch (e: Exception) {
-                        if (e is CancellationException && e !is ConnectionClosedException) {
-                            throw e
-                        }
-                        if (e !is TimeoutException) {
-                            println("Error collecting data from device: $e")
-                            e.printStackTrace()
-                        }
-                    }
-                    println("retrying to connect")
-                    delay(200)
-                }
+        var iconNdx by rememberSaveable{ mutableStateOf(0) }
+        var startTime by rememberSaveable{ mutableStateOf( currentSeconds() ) }
+        var accumulatedTime by rememberSaveable{ mutableStateOf( 0L ) }
+        LaunchedEffect(null ) {
+            while (true) {
+                delay(950)
+                if ( iconNdx != 0 )
+                    continue
+                val td = accumulatedTime +
+                        currentSeconds() - startTime
+                val h = td / 3600
+                val m = (td % 3600) / 60
+                val s = td % 60
+                if (h == 0L)
+                    time.value = "%02d:%02d".format(m ,s)
+                else
+                    time.value = "%d:%02d:%02d".format(h, m ,s)
             }
-            val currentSeconds = {
-                System.currentTimeMillis() / 1000
-            }
-            var iconNdx by rememberSaveable{ mutableStateOf(0) }
-            var startTime by rememberSaveable{ mutableStateOf( currentSeconds() ) }
-            var accumulatedTime by rememberSaveable{ mutableStateOf( 0L ) }
-            LaunchedEffect(null ) {
-                while (true) {
-                    delay(950)
-                    if ( iconNdx != 0 )
-                        continue
-                    val td = accumulatedTime +
-                            currentSeconds() - startTime
-                    val h = td / 3600
-                    val m = (td % 3600) / 60
-                    val s = td % 60
-                    if (h == 0L)
-                        time.value = "%02d:%02d".format(m ,s)
-                    else
-                        time.value = "%d:%02d:%02d".format(h, m ,s)
-                }
-            }
-            Text(text = pulse.value, fontSize = biggerTextSize.sp)
-            Text(text = time.value, fontSize = smallerTextSize.sp)
-            Row{
-                val mdf = Modifier
-                    .padding(horizontal = 32.dp, vertical = 6.dp)
-                ElevatedButton(
-                    modifier = mdf,
-                    onClick = {
-                            accumulatedTime = 0
-                            startTime = currentSeconds()
-                            iconNdx = 0
-                    }
-                ){
-                    Icon(
-                        Icons.Default.RestartAlt,
-                        contentDescription = "Reset")
-                }
-                val icons by remember{
-                    mutableStateOf( arrayOf(Icons.Default.Pause, Icons.Default.PlayArrow ) )
-                }
-                ElevatedButton(
-                    modifier = mdf,
-                    onClick = {
-                        if (iconNdx == 0)
-                            accumulatedTime += currentSeconds() - startTime
-                        else
-                            startTime = currentSeconds()
-                        iconNdx = ++iconNdx % icons.size
-                    }
-                ){
-                    Icon(
-                        icons[iconNdx],
-                        contentDescription = "Pause")
-                }
-            }
-            AnimatedVisibility(
-                visible = battery.isNotEmpty(),
-                modifier = Modifier.padding( 6.dp ),
-                enter = fadeIn(animationSpec = tween(2000))
-            ){
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.BatteryStd,
-                        contentDescription = "BLE device battery charge level",
-                        modifier = Modifier
-                            .size(16.spToDp)
-                    )
-                    Text(text = battery, fontSize = 16.sp)
-                }
-            }
+        }
+        val icons by remember{
+            mutableStateOf( arrayOf(Icons.Default.Pause, Icons.Default.PlayArrow ) )
+        }
+        val reset = {
+            accumulatedTime = 0
+            startTime = currentSeconds()
+            iconNdx = 0
+        }
+        val togglePause = {
+            if (iconNdx == 0)
+                accumulatedTime += currentSeconds() - startTime
+            else
+                startTime = currentSeconds()
+            iconNdx = ++iconNdx % icons.size
         }
         // endregion
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(topButtonPadding),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ElevatedButton(
+                onClick = { navController.navigate(Screens.devList) }
+            ){
+                Icon(
+                    Icons.AutoMirrored.Filled.BluetoothSearching,
+                    contentDescription = "List of available BLE devices",
+                )
+            }
+            // in landscape there is no room for it under the digits
+            if (landscape)
+                BatteryIndicator(battery)
+        }
+        if (landscape)
+            HorizontalMainUI(
+                pulse = pulse.value,
+                time = time.value,
+                pauseIcon = icons[iconNdx],
+                onReset = reset,
+                onTogglePause = togglePause,
+            )
+        else
+            VerticalMainUI(
+                pulse = pulse.value,
+                time = time.value,
+                battery = battery,
+                pauseIcon = icons[iconNdx],
+                topButtonPadding = topButtonPadding,
+                onReset = reset,
+                onTogglePause = togglePause,
+            )
+        // endregion
+    }
+}
+
+@Composable
+private fun VerticalMainUI(
+    pulse: String,
+    time: String,
+    battery: String,
+    pauseIcon: ImageVector,
+    topButtonPadding: Dp,
+    onReset: () -> Unit,
+    onTogglePause: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(top = topButtonPadding + ButtonDefaults.MinHeight),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        // fill = false: the block may not grow past the space left by the buttons, but it
+        // does not claim all of it either, so the buttons stay right under the digits.
+        DigitsBlock(pulse, time, Modifier.weight(1f, fill = false))
+        Row{
+            val mdf = Modifier
+                .padding(horizontal = 32.dp, vertical = 6.dp)
+            ElevatedButton(
+                modifier = mdf,
+                onClick = onReset
+            ){
+                Icon(
+                    Icons.Default.RestartAlt,
+                    contentDescription = "Reset")
+            }
+            ElevatedButton(
+                modifier = mdf,
+                onClick = onTogglePause
+            ){
+                Icon(
+                    pauseIcon,
+                    contentDescription = "Pause")
+            }
+        }
+        BatteryIndicator(battery)
+    }
+}
+
+@Composable
+private fun HorizontalMainUI(
+    pulse: String,
+    time: String,
+    pauseIcon: ImageVector,
+    onReset: () -> Unit,
+    onTogglePause: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        ElevatedButton(
+            modifier = Modifier.padding(start = 8.dp),
+            onClick = onReset
+        ){
+            Icon(
+                Icons.Default.RestartAlt,
+                contentDescription = "Reset")
+        }
+        // In landscape the digits are the star of the show: they claim every pixel of
+        // height we can spare and sit at the top of that space. fill = false keeps the
+        // box only as wide as the digits, so the buttons hug them instead of the edges.
+        DigitsBlock(
+            pulse,
+            time,
+            Modifier
+                .weight(1f, fill = false)
+                .fillMaxHeight()
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.TopCenter,
+            bottomPaddingOfTimeHeight = 0.5f,
+        )
+        ElevatedButton(
+            modifier = Modifier.padding(end = 8.dp),
+            onClick = onTogglePause
+        ){
+            Icon(
+                pauseIcon,
+                contentDescription = "Pause")
+        }
+    }
+}
+
+// A pulse is a heart rate, so it never needs more than 3 digits; the probe uses the
+// widest of them, so the digits always fill whatever space the layout leaves them.
+private const val REF_SIZE_SP = 100f
+private const val PULSE_PROBE = "888"
+private const val TIME_PROBE = "0:00:00"
+private const val TIME_TO_PULSE_RATIO = 0.5f
+
+private class Probe(
+    val width: Float,
+    val timeWidth: Float,
+    val pulseHeight: Float,
+    val timeHeight: Float,
+)
+
+@Composable
+private fun rememberProbe(): Probe {
+    val measurer = rememberTextMeasurer()
+    return remember(measurer) {
+        val style = TextStyle(fontSize = REF_SIZE_SP.sp)
+        val pulse = measurer.measure(PULSE_PROBE, style).size
+        val time = measurer.measure(TIME_PROBE, style).size
+        Probe(
+            width = pulse.width.toFloat(),
+            timeWidth = time.width.toFloat(),
+            pulseHeight = pulse.height.toFloat(),
+            timeHeight = time.height.toFloat(),
+        )
+    }
+}
+
+// Text scales linearly, so one measurement at a reference size is enough to compute
+// the largest size that fits both the width and the height we have been given.
+@Composable
+private fun DigitsBlock(
+    pulse: String,
+    time: String,
+    modifier: Modifier = Modifier,
+    contentAlignment: Alignment = Alignment.Center,
+    // Fraction of the rendered timer height to leave empty below the digits.
+    bottomPaddingOfTimeHeight: Float = 0f,
+) {
+    val probe = rememberProbe()
+    BoxWithConstraints(modifier, contentAlignment = contentAlignment) {
+        val density = LocalDensity.current
+        val availableWidth = with(density) { maxWidth.toPx() }
+        val availableHeight = with(density) { maxHeight.toPx() }
+        // The bottom padding is a fraction of the timer's own height, which in turn
+        // depends on the scale we are solving for. Folding that fraction into the height
+        // budget resolves the circularity:
+        //   scale = height / (pulseHeight + (1 + k) * TIME_TO_PULSE_RATIO * timeHeight)
+        val heightBudget = probe.pulseHeight +
+                (1f + bottomPaddingOfTimeHeight) * TIME_TO_PULSE_RATIO * probe.timeHeight
+        val pulseSize = REF_SIZE_SP * min(
+            availableWidth / probe.width,
+            availableHeight / heightBudget,
+        )
+        // The block always takes the width of the widest value we can ever show, so the
+        // neighbours do not move when the current value gets shorter.
+        val widest = max(probe.width, probe.timeWidth * TIME_TO_PULSE_RATIO) * pulseSize / REF_SIZE_SP
+        val bottomPadding = bottomPaddingOfTimeHeight * TIME_TO_PULSE_RATIO *
+                probe.timeHeight * pulseSize / REF_SIZE_SP
+        Column(
+            modifier = Modifier
+                .width(with(density) { widest.toDp() })
+                .padding(bottom = with(density) { bottomPadding.toDp() }),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(text = pulse, fontSize = pulseSize.sp)
+            Text(text = time, fontSize = (pulseSize * TIME_TO_PULSE_RATIO).sp)
+        }
+    }
+}
+
+@Composable
+private fun BatteryIndicator(battery: String) {
+    AnimatedVisibility(
+        visible = battery.isNotEmpty(),
+        modifier = Modifier.padding( 6.dp ),
+        enter = fadeIn(animationSpec = tween(2000))
+    ){
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.BatteryStd,
+                contentDescription = "BLE device battery charge level",
+                modifier = Modifier
+                    .size(16.spToDp)
+            )
+            Text(text = battery, fontSize = 16.sp)
+        }
     }
 }
 
@@ -402,6 +515,17 @@ private fun MainUI() {
     widthDp = 300)
 @Composable
 fun DefaultPreview() {
+    PulsarTheme {
+        MainUI()
+    }
+}
+
+@Preview(
+    showBackground = true,
+    heightDp = 300,
+    widthDp = 600)
+@Composable
+fun LandscapePreview() {
     PulsarTheme {
         MainUI()
     }
