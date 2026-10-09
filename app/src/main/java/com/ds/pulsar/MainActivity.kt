@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
@@ -51,6 +52,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
@@ -172,7 +174,7 @@ private fun MainUI() {
     var accumulatedTime by rememberSaveable{ mutableStateOf( 0L ) }
     LaunchedEffect(null ) {
         while (true) {
-            delay(950)
+            delay(250)
             if ( iconNdx != 0 )
                 continue
             val td = accumulatedTime +
@@ -393,22 +395,8 @@ private fun VerticalMainUI(
         Row{
             val mdf = Modifier
                 .padding(horizontal = 32.dp, vertical = 6.dp)
-            ElevatedButton(
-                modifier = mdf,
-                onClick = onReset
-            ){
-                Icon(
-                    Icons.Default.RestartAlt,
-                    contentDescription = "Reset")
-            }
-            ElevatedButton(
-                modifier = mdf,
-                onClick = onTogglePause
-            ){
-                Icon(
-                    pauseIcon,
-                    contentDescription = "Pause")
-            }
+            ResetButton(onReset, mdf)
+            PauseButton(onTogglePause, pauseIcon, mdf)
         }
         BatteryIndicator(battery)
     }
@@ -423,43 +411,51 @@ private fun HorizontalMainUI(
     onTogglePause: () -> Unit,
     onDigitsBounds: (LayoutCoordinates) -> Unit = {},
 ) {
-    Row(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        ElevatedButton(
-            modifier = Modifier.padding(start = 8.dp),
-            onClick = onReset
-        ){
-            Icon(
-                Icons.Default.RestartAlt,
-                contentDescription = "Reset")
-        }
-        // In landscape the digits are the star of the show: they claim every pixel of
-        // height we can spare and sit at the top of that space. fill = false keeps the
-        // box only as wide as the digits, so the buttons hug them instead of the edges.
-        DigitsBlock(
-            pulse,
-            time,
-            Modifier
-                .weight(1f, fill = false)
-                .fillMaxHeight()
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.TopCenter,
-            bottomPaddingOfTimeHeight = 0.5f,
-            onDigitsBounds = onDigitsBounds,
-        )
-        ElevatedButton(
-            modifier = Modifier.padding(end = 8.dp),
-            onClick = onTogglePause
-        ){
-            Icon(
-                pauseIcon,
-                contentDescription = "Pause")
-        }
+    // The digits are the star of the show: they claim every pixel of height we can
+    // spare. The buttons go into the block's time slots, so they hug the timer rather
+    // than the whole pulse + time readout; telling the block how wide they are keeps
+    // the digits from being scaled so large that they push the buttons off screen.
+    DigitsBlock(
+        pulse,
+        time,
+        Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+        bottomPaddingOfTimeHeight = 0.5f,
+        timeRowWidthReserve = (ButtonDefaults.MinWidth + 8.dp) * 2f,
+        onDigitsBounds = onDigitsBounds,
+        timeRowStart = { ResetButton(onReset, Modifier.padding(start = 8.dp)) },
+        timeRowEnd = { PauseButton(onTogglePause, pauseIcon, Modifier.padding(end = 8.dp)) },
+    )
+}
+
+@Composable
+private fun ResetButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ElevatedButton(
+        modifier = modifier,
+        onClick = onClick
+    ){
+        Icon(
+            Icons.Default.RestartAlt,
+            contentDescription = "Reset")
+    }
+}
+
+@Composable
+private fun PauseButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    ElevatedButton(
+        modifier = modifier,
+        onClick = onClick
+    ){
+        Icon(
+            icon,
+            contentDescription = "Pause")
     }
 }
 
@@ -508,14 +504,21 @@ internal fun DigitsBlock(
     // Lets the caller know where the digits ended up, so picture-in-picture can grow
     // exactly that part of the screen into the floating window.
     onDigitsBounds: (LayoutCoordinates) -> Unit = {},
+    // Optional slots beside the timer, so a caller can hang controls off the time line
+    // instead of beside the whole readout.
+    timeRowStart: (@Composable () -> Unit)? = null,
+    timeRowEnd: (@Composable () -> Unit)? = null,
+    // How much width those slots need; it is taken out of the width the digits may use,
+    // so filling the slots never pushes them off screen.
+    timeRowWidthReserve: Dp = 0.dp,
 ) {
     val probe = rememberProbe()
     BoxWithConstraints(
-        modifier.onGloballyPositioned(onDigitsBounds),
+        modifier,
         contentAlignment = contentAlignment,
     ) {
         val density = LocalDensity.current
-        val availableWidth = with(density) { maxWidth.toPx() }
+        val availableWidth = with(density) { (maxWidth - timeRowWidthReserve).toPx() }
         val availableHeight = with(density) { maxHeight.toPx() }
         // The bottom padding is a fraction of the timer's own height, which in turn
         // depends on the scale we are solving for. Folding that fraction into the height
@@ -527,19 +530,46 @@ internal fun DigitsBlock(
             availableWidth / probe.width,
             availableHeight / heightBudget,
         )
-        // The block always takes the width of the widest value we can ever show, so the
-        // neighbours do not move when the current value gets shorter.
-        val widest = max(probe.width, probe.timeWidth * TIME_TO_PULSE_RATIO) * pulseSize / REF_SIZE_SP
-        val bottomPadding = bottomPaddingOfTimeHeight * TIME_TO_PULSE_RATIO *
-                probe.timeHeight * pulseSize / REF_SIZE_SP
+        // The digits always reserve the width of the widest value we can ever show, so
+        // the neighbours (a button beside the timer, say) do not move when the current
+        // value gets shorter.
+        val widestDp = with(density) {
+            (max(probe.width, probe.timeWidth * TIME_TO_PULSE_RATIO) * pulseSize / REF_SIZE_SP).toDp()
+        }
+        val timeWidthDp = with(density) {
+            (probe.timeWidth * TIME_TO_PULSE_RATIO * pulseSize / REF_SIZE_SP).toDp()
+        }
+        val bottomPaddingDp = with(density) {
+            (bottomPaddingOfTimeHeight * TIME_TO_PULSE_RATIO * probe.timeHeight *
+                    pulseSize / REF_SIZE_SP).toDp()
+        }
         Column(
             modifier = Modifier
-                .width(with(density) { widest.toDp() })
-                .padding(bottom = with(density) { bottomPadding.toDp() }),
+                .onGloballyPositioned(onDigitsBounds)
+                .widthIn(min = widestDp)
+                .padding(bottom = bottomPaddingDp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(text = pulse, fontSize = pulseSize.sp)
-            Text(text = time, fontSize = (pulseSize * TIME_TO_PULSE_RATIO).sp)
+            Text(
+                text = pulse,
+                fontSize = pulseSize.sp,
+                modifier = Modifier.width(widestDp),
+                textAlign = TextAlign.Center,
+            )
+            Row(
+                modifier = Modifier.widthIn(min = widestDp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                timeRowStart?.invoke()
+                Text(
+                    text = time,
+                    fontSize = (pulseSize * TIME_TO_PULSE_RATIO).sp,
+                    modifier = Modifier.width(timeWidthDp),
+                    textAlign = TextAlign.Center,
+                )
+                timeRowEnd?.invoke()
+            }
         }
     }
 }
