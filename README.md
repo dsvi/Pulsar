@@ -7,5 +7,5 @@ A simple pulse (heart rate monitor) app for a BLE device.
      alt="Get it on F-Droid"
      height="80">](https://f-droid.org/packages/ds.pulsar/)
 
-![Screenshot](Screenshot0.png)
-![Screenshot](Screenshot1.png)
+![Screenshot](fastlane/metadata/android/en-US/images/phoneScreenshots/1.png)
+![Screenshot](fastlane/metadata/android/en-US/images/phoneScreenshots/2.png)
