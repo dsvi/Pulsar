@@ -1,6 +1,5 @@
 package com.ds.pulsar
 
-import android.app.Activity
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +46,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -71,8 +74,8 @@ private lateinit
 var navController_: NavHostController
 val navController by ::navController_
 
-private lateinit
-var activity : Activity
+internal lateinit
+var activity : MainActivity
 
 class MainActivity : ComponentActivity() {
 
@@ -145,6 +148,72 @@ fun MainScreen() {
 
 @Composable
 private fun MainUI() {
+    val pip = rememberPictureInPictureState()
+    //region timer state
+    // Declared above the picture-in-picture branch on purpose: the state and its
+    // collectors stay alive across the transition, which is what keeps the timer ticking
+    // and the pulse flowing while the app floats in its little window.
+    val pulse = remember{ mutableStateOf("---") }
+    val time = remember{ mutableStateOf("---") }
+    var battery by remember{ mutableStateOf("") }
+    LaunchedEffect(null ) {
+        pulse.value = "---"
+        heartRateStream.data.collect {
+            pulse.value = it.pulse.toString()
+            if (it.batteryLevel != null)
+                battery = it.batteryLevel.toString() + "%"
+        }
+    }
+    val currentSeconds = {
+        System.currentTimeMillis() / 1000
+    }
+    var iconNdx by rememberSaveable{ mutableStateOf(0) }
+    var startTime by rememberSaveable{ mutableStateOf( currentSeconds() ) }
+    var accumulatedTime by rememberSaveable{ mutableStateOf( 0L ) }
+    LaunchedEffect(null ) {
+        while (true) {
+            delay(950)
+            if ( iconNdx != 0 )
+                continue
+            val td = accumulatedTime +
+                    currentSeconds() - startTime
+            val h = td / 3600
+            val m = (td % 3600) / 60
+            val s = td % 60
+            if (h == 0L)
+                time.value = "%02d:%02d".format(m ,s)
+            else
+                time.value = "%d:%02d:%02d".format(h, m ,s)
+        }
+    }
+    val icons by remember{
+        mutableStateOf( arrayOf(Icons.Default.Pause, Icons.Default.PlayArrow ) )
+    }
+    val reset = {
+        accumulatedTime = 0
+        startTime = currentSeconds()
+        iconNdx = 0
+    }
+    val togglePause = {
+        if (iconNdx == 0)
+            accumulatedTime += currentSeconds() - startTime
+        else
+            startTime = currentSeconds()
+        iconNdx = ++iconNdx % icons.size
+    }
+    // endregion
+
+    // The floating window is barely big enough for the readout, and the system paints its
+    // own controls over it, so everything else is left out of the PiP composable.
+    if (pip.isInPictureInPicture) {
+        PictureInPictureUI(
+            pulse = pulse.value,
+            time = time.value,
+            onDigitsBounds = { pip.digitsBounds = it },
+        )
+        return
+    }
+
     BoxWithConstraints {
         val topButtonPadding = 6.dp
         var askAgain by remember{
@@ -213,79 +282,46 @@ private fun MainUI() {
                 }
             }
         }
-        ElevatedButton(
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(topButtonPadding),
-            onClick = {
-                if (mayDisableBt){
-                    if (gotToAskAboutDisablingBt) {
-                        showExitDialog = true
-                    }
-                    else{
-                        quit(disableBt)
-                    }
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (pip.supported) {
+                ElevatedButton(
+                    onClick = { pip.enter() }
+                ){
+                    Icon(
+                        Icons.Default.PictureInPictureAlt,
+                        contentDescription = "Minimise into a floating window",
+                    )
                 }
-                else
-                    quit(false)
+                // The two buttons are separate actions, so they get a bit more air between
+                // them than the padding they already carry against the screen edge.
+                Spacer(Modifier.width(16.dp))
             }
-        ){
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Close the app",
-            )
+            ElevatedButton(
+                onClick = {
+                    if (mayDisableBt){
+                        if (gotToAskAboutDisablingBt) {
+                            showExitDialog = true
+                        }
+                        else{
+                            quit(disableBt)
+                        }
+                    }
+                    else
+                        quit(false)
+                }
+            ){
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close the app",
+                )
+            }
         }
         val landscape = maxWidth > maxHeight
-        //region timer state
-        val pulse = remember{ mutableStateOf("---") }
-        val time = remember{ mutableStateOf("---") }
-        var battery by remember{ mutableStateOf("") }
-        LaunchedEffect(null ) {
-            pulse.value = "---"
-            heartRateStream.data.collect {
-                pulse.value = it.pulse.toString()
-                if (it.batteryLevel != null)
-                    battery = it.batteryLevel.toString() + "%"
-            }
-        }
-        val currentSeconds = {
-            System.currentTimeMillis() / 1000
-        }
-        var iconNdx by rememberSaveable{ mutableStateOf(0) }
-        var startTime by rememberSaveable{ mutableStateOf( currentSeconds() ) }
-        var accumulatedTime by rememberSaveable{ mutableStateOf( 0L ) }
-        LaunchedEffect(null ) {
-            while (true) {
-                delay(950)
-                if ( iconNdx != 0 )
-                    continue
-                val td = accumulatedTime +
-                        currentSeconds() - startTime
-                val h = td / 3600
-                val m = (td % 3600) / 60
-                val s = td % 60
-                if (h == 0L)
-                    time.value = "%02d:%02d".format(m ,s)
-                else
-                    time.value = "%d:%02d:%02d".format(h, m ,s)
-            }
-        }
-        val icons by remember{
-            mutableStateOf( arrayOf(Icons.Default.Pause, Icons.Default.PlayArrow ) )
-        }
-        val reset = {
-            accumulatedTime = 0
-            startTime = currentSeconds()
-            iconNdx = 0
-        }
-        val togglePause = {
-            if (iconNdx == 0)
-                accumulatedTime += currentSeconds() - startTime
-            else
-                startTime = currentSeconds()
-            iconNdx = ++iconNdx % icons.size
-        }
-        // endregion
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -311,6 +347,7 @@ private fun MainUI() {
                 pauseIcon = icons[iconNdx],
                 onReset = reset,
                 onTogglePause = togglePause,
+                onDigitsBounds = { pip.digitsBounds = it },
             )
         else
             VerticalMainUI(
@@ -321,6 +358,7 @@ private fun MainUI() {
                 topButtonPadding = topButtonPadding,
                 onReset = reset,
                 onTogglePause = togglePause,
+                onDigitsBounds = { pip.digitsBounds = it },
             )
         // endregion
     }
@@ -335,6 +373,7 @@ private fun VerticalMainUI(
     topButtonPadding: Dp,
     onReset: () -> Unit,
     onTogglePause: () -> Unit,
+    onDigitsBounds: (LayoutCoordinates) -> Unit = {},
 ) {
     Column(
         Modifier
@@ -345,7 +384,12 @@ private fun VerticalMainUI(
     ) {
         // fill = false: the block may not grow past the space left by the buttons, but it
         // does not claim all of it either, so the buttons stay right under the digits.
-        DigitsBlock(pulse, time, Modifier.weight(1f, fill = false))
+        DigitsBlock(
+            pulse,
+            time,
+            Modifier.weight(1f, fill = false),
+            onDigitsBounds = onDigitsBounds,
+        )
         Row{
             val mdf = Modifier
                 .padding(horizontal = 32.dp, vertical = 6.dp)
@@ -377,6 +421,7 @@ private fun HorizontalMainUI(
     pauseIcon: ImageVector,
     onReset: () -> Unit,
     onTogglePause: () -> Unit,
+    onDigitsBounds: (LayoutCoordinates) -> Unit = {},
 ) {
     Row(
         Modifier
@@ -405,6 +450,7 @@ private fun HorizontalMainUI(
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.TopCenter,
             bottomPaddingOfTimeHeight = 0.5f,
+            onDigitsBounds = onDigitsBounds,
         )
         ElevatedButton(
             modifier = Modifier.padding(end = 8.dp),
@@ -449,17 +495,25 @@ private fun rememberProbe(): Probe {
 
 // Text scales linearly, so one measurement at a reference size is enough to compute
 // the largest size that fits both the width and the height we have been given.
+// Internal rather than private: the picture-in-picture composable reuses it, because the
+// readout is the one thing that has to look right in a window of any size.
 @Composable
-private fun DigitsBlock(
+internal fun DigitsBlock(
     pulse: String,
     time: String,
     modifier: Modifier = Modifier,
     contentAlignment: Alignment = Alignment.Center,
     // Fraction of the rendered timer height to leave empty below the digits.
     bottomPaddingOfTimeHeight: Float = 0f,
+    // Lets the caller know where the digits ended up, so picture-in-picture can grow
+    // exactly that part of the screen into the floating window.
+    onDigitsBounds: (LayoutCoordinates) -> Unit = {},
 ) {
     val probe = rememberProbe()
-    BoxWithConstraints(modifier, contentAlignment = contentAlignment) {
+    BoxWithConstraints(
+        modifier.onGloballyPositioned(onDigitsBounds),
+        contentAlignment = contentAlignment,
+    ) {
         val density = LocalDensity.current
         val availableWidth = with(density) { maxWidth.toPx() }
         val availableHeight = with(density) { maxHeight.toPx() }
