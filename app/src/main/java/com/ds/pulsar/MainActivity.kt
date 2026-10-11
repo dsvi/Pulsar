@@ -466,6 +466,16 @@ private const val PULSE_PROBE = "888"
 private const val TIME_PROBE = "0:00:00"
 private const val TIME_TO_PULSE_RATIO = 0.5f
 
+// The probe and the rendered digits have to share one style. Text() falls back to
+// Material's bodyLarge, which adds letter spacing: the glyphs then come out a hair
+// wider than the width the probe reserved for them, the last digit wraps onto a second
+// line, and bodyLarge's 24sp line height pulls that line back up into the first one.
+// That is what made the middle digit of a 3 digit pulse sit lower than its neighbours.
+private fun digitsStyle(fontSize: Float) = TextStyle(
+    fontSize = fontSize.sp,
+    letterSpacing = 0.sp,
+)
+
 private class Probe(
     val width: Float,
     val timeWidth: Float,
@@ -477,7 +487,7 @@ private class Probe(
 private fun rememberProbe(): Probe {
     val measurer = rememberTextMeasurer()
     return remember(measurer) {
-        val style = TextStyle(fontSize = REF_SIZE_SP.sp)
+        val style = digitsStyle(REF_SIZE_SP)
         val pulse = measurer.measure(PULSE_PROBE, style).size
         val time = measurer.measure(TIME_PROBE, style).size
         Probe(
@@ -550,11 +560,15 @@ internal fun DigitsBlock(
                 .padding(bottom = bottomPaddingDp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // The digits are a fixed width readout: they must never wrap, whatever
+            // the value, or the layout below them shifts.
             Text(
                 text = pulse,
-                fontSize = pulseSize.sp,
+                style = digitsStyle(pulseSize),
                 modifier = Modifier.width(widestDp),
                 textAlign = TextAlign.Center,
+                softWrap = false,
+                maxLines = 1,
             )
             Row(
                 modifier = Modifier.widthIn(min = widestDp),
@@ -564,9 +578,11 @@ internal fun DigitsBlock(
                 timeRowStart?.invoke()
                 Text(
                     text = time,
-                    fontSize = (pulseSize * TIME_TO_PULSE_RATIO).sp,
+                    style = digitsStyle(pulseSize * TIME_TO_PULSE_RATIO),
                     modifier = Modifier.width(timeWidthDp),
                     textAlign = TextAlign.Center,
+                    softWrap = false,
+                    maxLines = 1,
                 )
                 timeRowEnd?.invoke()
             }
