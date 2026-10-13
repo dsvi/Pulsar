@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.shareIn
 import java.lang.System.currentTimeMillis
 import java.util.concurrent.TimeoutException
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 val heartRateStream: HeartRateStream by lazy{
     HeartRateStream()
@@ -57,9 +58,16 @@ class HeartRateStream {
     @SuppressLint("MissingPermission")
     val data: SharedFlow<DataFromDevice> = upstreamFlow()
         .retryWhen { e, _ ->
-            if (e is TimeoutException || e is ConnectionClosedException) {
+            // IllegalStateException here means connectGatt() returned null, i.e. Bluetooth got
+            // switched off or the BT stack died underneath us. Both are transient, so treat them
+            // like the other disconnects instead of letting the error escape and crash the app.
+            if (
+                (e is TimeoutException) ||
+                (e is ConnectionClosedException) ||
+                (e is IllegalStateException)
+            ) {
                 println("device stream failed: $e; retrying to connect")
-                delay(200.milliseconds)
+                delay(1.seconds)
                 true
             } else false
         }
@@ -155,7 +163,13 @@ class HeartRateStream {
             }
         }
         finally {
-            deviceConnection.close() // Also triggers disconnect by default.
+            try {
+                deviceConnection.close() // Also triggers disconnect by default.
+            } catch (e: Exception) {
+                // The BT stack can already be gone by now (DeadObjectException); cleanup must not
+                // mask the failure that the retry policy above is supposed to handle.
+                println("device close failed: $e")
+            }
             println("device collection finished")
         }
     }.conflate().flowOn(Dispatchers.IO)
