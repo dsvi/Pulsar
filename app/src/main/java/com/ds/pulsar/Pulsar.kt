@@ -14,6 +14,9 @@ val btAdapter: BluetoothAdapter by lazy{ (app.getSystemService(Context.BLUETOOTH
 var mayDisableBt = false
 var disableBt by PreferenceDelegate("auto_disable_bt", false)
 var gotToAskAboutDisablingBt by PreferenceDelegate("ask_about_disabling_bt", true)
+// Set as soon as the system permission dialog has been shown once, so the app can tell a
+// first request apart from a permission the system refuses to ask about any more.
+var askedAboutPermissions by PreferenceDelegate("asked_about_permissions", false)
 
 class Pulsar: Application() {
     override fun onCreate() {

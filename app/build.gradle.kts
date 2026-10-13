@@ -1,7 +1,5 @@
 plugins {
     id("com.android.application")
-    // Compose compiler plugin. Kotlin itself is provided by AGP 9's built-in Kotlin
-    // support, so `org.jetbrains.kotlin.android` is intentionally NOT applied here.
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -31,8 +29,6 @@ android {
             setProguardFiles(listOf(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"))
         }
     }
-    // AGP 9 defaults source/target compatibility to Java 11; Kotlin 2.x dropped the
-    // 1.8 target entirely. With built-in Kotlin, jvmTarget defaults to this value.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

@@ -14,13 +14,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BatteryStd
@@ -53,8 +52,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,10 +63,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ds.pulsar.ui.theme.PulsarTheme
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import java.util.concurrent.TimeoutException
 import kotlin.math.max
 import kotlin.math.min
 
@@ -466,16 +462,6 @@ private const val PULSE_PROBE = "888"
 private const val TIME_PROBE = "0:00:00"
 private const val TIME_TO_PULSE_RATIO = 0.5f
 
-// The probe and the rendered digits have to share one style. Text() falls back to
-// Material's bodyLarge, which adds letter spacing: the glyphs then come out a hair
-// wider than the width the probe reserved for them, the last digit wraps onto a second
-// line, and bodyLarge's 24sp line height pulls that line back up into the first one.
-// That is what made the middle digit of a 3 digit pulse sit lower than its neighbours.
-private fun digitsStyle(fontSize: Float) = TextStyle(
-    fontSize = fontSize.sp,
-    letterSpacing = 0.sp,
-)
-
 private class Probe(
     val width: Float,
     val timeWidth: Float,
@@ -487,7 +473,13 @@ private class Probe(
 private fun rememberProbe(): Probe {
     val measurer = rememberTextMeasurer()
     return remember(measurer) {
-        val style = digitsStyle(REF_SIZE_SP)
+        // The probe and the rendered digits have to share one style, otherwise the glyphs
+        // come out a hair wider than the width the probe reserved for them, the last digit
+        // wraps onto a second line, and the second line's height pulls that line back up
+        // into the first one. That is what made the middle digit of a 3 digit pulse sit
+        // lower than its neighbours. Nothing else is provided through LocalTextStyle here,
+        // so Text(fontSize = ...) resolves to exactly this style.
+        val style = TextStyle(fontSize = REF_SIZE_SP.sp)
         val pulse = measurer.measure(PULSE_PROBE, style).size
         val time = measurer.measure(TIME_PROBE, style).size
         Probe(
@@ -564,7 +556,7 @@ internal fun DigitsBlock(
             // the value, or the layout below them shifts.
             Text(
                 text = pulse,
-                style = digitsStyle(pulseSize),
+                fontSize = pulseSize.sp,
                 modifier = Modifier.width(widestDp),
                 textAlign = TextAlign.Center,
                 softWrap = false,
@@ -578,7 +570,7 @@ internal fun DigitsBlock(
                 timeRowStart?.invoke()
                 Text(
                     text = time,
-                    style = digitsStyle(pulseSize * TIME_TO_PULSE_RATIO),
+                    fontSize = (pulseSize * TIME_TO_PULSE_RATIO).sp,
                     modifier = Modifier.width(timeWidthDp),
                     textAlign = TextAlign.Center,
                     softWrap = false,

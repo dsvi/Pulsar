@@ -1,5 +1,6 @@
 package com.ds.pulsar
 
+import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -25,6 +26,14 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun EnsureBtIsOn(whenBtIsOn: @Composable ()->Unit ) {
     val context = LocalContext.current
+
+    val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            // Only claim the adapter when the user really accepted the request. If they
+            // dismissed the dialog, we never turned Bluetooth on, so the exit dialog must not
+            // offer to turn it off for them.
+            mayDisableBt = (result.resultCode == Activity.RESULT_OK) && btAdapter.isEnabled
+        }
 
     val isBluetoothEnabled = remember{ mutableStateOf( btAdapter.isEnabled ) }
 
@@ -69,13 +78,10 @@ fun EnsureBtIsOn(whenBtIsOn: @Composable ()->Unit ) {
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ){
-                val launcher =
-                    rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
                 Text("Got to enable Bluetooth", Modifier.padding(all = 10.dp))
                 ElevatedButton(
                     onClick = {
                         launcher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-                        mayDisableBt = true
                     }
                 ){
                     Text("Aye, let's do it")
