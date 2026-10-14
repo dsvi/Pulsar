@@ -100,10 +100,10 @@ index a04c6cf..6fe6a38 100644
              }
 diff --git a/app/src/main/java/com/ds/pulsar/PulseService.kt b/app/src/main/java/com/ds/pulsar/PulseService.kt
 new file mode 100644
-index 0000000..2940378
+index 0000000..d400d26
 --- /dev/null
 +++ b/app/src/main/java/com/ds/pulsar/PulseService.kt
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,209 @@
 +package com.ds.pulsar
 +
 +import android.app.Notification
@@ -152,7 +152,7 @@ index 0000000..2940378
 +
 +    companion object {
 +        const val ACTION_STOP = "ds.pulsar.STOP"
-+        private const val CHANNEL_ID = "pulse"
++        private const val CHANNEL_ID = "pulse_v2"
 +        private const val NOTIF_ID = 1
 +
 +        fun start(ctx: Context) {
@@ -180,7 +180,10 @@ index 0000000..2940378
 +        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 +            nm.createNotificationChannel(
 +                NotificationChannel(CHANNEL_ID, "Heart rate", NotificationManager.IMPORTANCE_LOW)
-+                    .apply { setShowBadge(false) }
++                    .apply {
++                        setShowBadge(false)
++                        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
++                    }
 +            )
 +        }
 +    }
@@ -260,6 +263,7 @@ index 0000000..2940378
 +            .setContentIntent(open)
 +            .addAction(0, "Stop", stop)
 +            .setOngoing(true)
++            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 +            .setOnlyAlertOnce(true)
 +            .setShowWhen(false)
 +            .setCategory(NotificationCompat.CATEGORY_SERVICE)
