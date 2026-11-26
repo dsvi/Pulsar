@@ -14,14 +14,13 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
 import java.lang.System.currentTimeMillis
 import java.util.concurrent.TimeoutException
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 val heartRateStream: HeartRateStream by lazy{
     HeartRateStream()
@@ -49,33 +48,38 @@ class HeartRateStream {
     get() = devAddres.isEmpty()
 
     data class DataFromDevice(
-        var pulse: UInt = 0u,
+        // null means "no reading" (disconnected / reconnecting)
+        var pulse: UInt? = null,
         var batteryLevel: UInt? = null
     )
     // check requiresSearchForDevice before use
-    // Hot stream: a single connection is shared between all collectors; the latest
-    // value is replayed to new collectors, and it automatically reconnects on error.
     @SuppressLint("MissingPermission")
-    val data: SharedFlow<DataFromDevice> = upstreamFlow()
-        .retryWhen { e, _ ->
-            // IllegalStateException here means connectGatt() returned null, i.e. Bluetooth got
-            // switched off or the BT stack died underneath us. Both are transient, so treat them
-            // like the other disconnects instead of letting the error escape and crash the app.
-            if (
-                (e is TimeoutException) ||
-                (e is ConnectionClosedException) ||
-                (e is IllegalStateException)
-            ) {
-                println("device stream failed: $e; retrying to connect")
-                delay(1.seconds)
-                true
-            } else false
-        }
+    val data: SharedFlow<DataFromDevice> = reconnectingFlow()
         .shareIn(
             CoroutineScope(SupervisorJob() + Dispatchers.IO),
             SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
             replay = 1
         )
+
+    private fun reconnectingFlow() = flow<DataFromDevice> {
+        while (true) {
+            try {
+                println("collecting...")
+                emitAll(upstreamFlow())
+            } catch (e: Exception) {
+                if (e is CancellationException && e !is ConnectionClosedException) {
+                    throw e   // the scope is going away, not the device
+                }
+                if (e !is TimeoutException) {
+                    println("Error collecting data from device: $e")
+                    e.printStackTrace()
+                }
+                emit(DataFromDevice())
+            }
+            println("retrying to connect")
+            delay(200)
+        }
+    }
 
     @SuppressLint("MissingPermission")
     private fun upstreamFlow() = flow<DataFromDevice> {
@@ -130,8 +134,8 @@ class HeartRateStream {
                     true
                 )
                 var lastTimeHeardFromBattery = 0L
-                val data = DataFromDevice()
                 f.conflate().collect { heartRate ->
+                    val data = DataFromDevice()
                     val flags = heartRate.getIntValue(FORMAT_UINT8, 0)
                     val is8bit = flags and 1 == 0
                     val hr = if (is8bit)

@@ -157,7 +157,7 @@ private fun MainUI() {
     LaunchedEffect(null ) {
         pulse.value = "---"
         heartRateStream.data.collect {
-            pulse.value = it.pulse.toString()
+            pulse.value = it.pulse?.toString() ?: "---"
             if (it.batteryLevel != null)
                 battery = it.batteryLevel.toString() + "%"
         }
